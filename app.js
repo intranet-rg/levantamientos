@@ -355,12 +355,16 @@ function esperarGoogle(ms = 10000) {
   });
 }
 
+function urlDeConfig() {
+  return CONFIG.API_URL && !CONFIG.API_URL.startsWith('PEGAR') ? CONFIG.API_URL.trim() : '';
+}
+
 async function vistaLogin() {
   const reingreso = !!S.usuario;
   cabecera(CONFIG.NOMBRE_APP, reingreso ? (S.usuario.email || '') : '', reingreso ? '#/' : null);
   if (!reingreso) ['#btnSync', '#btnAjustes'].forEach((x) => { $(x).hidden = true; });
-  const urlConfig = CONFIG.API_URL && !CONFIG.API_URL.startsWith('PEGAR') ? CONFIG.API_URL : '';
-  const urlGuardada = (await DB.meta('apiUrl')) || urlConfig;
+  const urlConfig = urlDeConfig();
+  const urlGuardada = urlConfig || (await DB.meta('apiUrl')) || '';
   $('#app').innerHTML = `<div class="panel login">
     <h2>${reingreso ? 'Volver a iniciar sesión' : 'Ingreso'}</h2>
     <p class="nota">${reingreso
@@ -368,9 +372,9 @@ async function vistaLogin() {
       : 'Entra con tu cuenta de Google de la empresa. La primera vez necesitas señal; después la app funciona sin conexión.'}</p>
     <div id="gBtn" class="g-btn"><p class="nota">Cargando…</p></div>
     <p class="nota centro">Solo cuentas @${esc(CONFIG.DOMINIO)}</p>
-    <details ${urlGuardada ? '' : 'open'}><summary>Servidor</summary>
+    ${urlConfig ? '' : `<details open><summary>Servidor</summary>
       <label class="campo"><span class="lbl">URL de Apps Script (/exec)</span><div class="ctrl"><input id="inUrl" value="${esc(urlGuardada)}"></div></label>
-    </details>
+    </details>`}
   </div>`;
   const caja = $('#gBtn');
   if (!navigator.onLine) { caja.innerHTML = '<p class="vacio">Necesitas señal para iniciar sesión.</p>'; return; }
@@ -386,8 +390,8 @@ async function vistaLogin() {
     auto_select: false,
     ux_mode: 'popup',
     callback: async (resp) => {
-      S.apiUrl = $('#inUrl').value.trim();
-      if (!S.apiUrl) { toast('Falta la URL del servidor'); $('details', $('#app')).open = true; return; }
+      S.apiUrl = urlConfig || ($('#inUrl') ? $('#inUrl').value.trim() : '');
+      if (!S.apiUrl) { toast('Falta la URL del servidor'); return; }
       caja.innerHTML = '<p class="nota">Conectando…</p>';
       try {
         const r = await api('login', { idToken: resp.credential });
@@ -792,7 +796,7 @@ function iniciarSesion() {
 }
 
 async function arrancar() {
-  S.apiUrl = (await DB.meta('apiUrl')) || (CONFIG.API_URL.startsWith('PEGAR') ? '' : CONFIG.API_URL);
+  S.apiUrl = urlDeConfig() || (await DB.meta('apiUrl')) || '';
   S.usuario = await DB.meta('usuario');
   if (S.usuario && !S.usuario.sesion) S.usuario = null; // datos de una versión anterior
   S.plantillas = (await DB.meta('plantillas')) || [];
