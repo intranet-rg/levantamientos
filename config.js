@@ -7,5 +7,5 @@ window.CONFIG = {
   // Dominio de la empresa: solo entran cuentas @este-dominio (debe ser el mismo que en Codigo.gs)
   DOMINIO: 'rg-energia.com',
   NOMBRE_APP: 'Levantamientos',
-  VERSION: '1.1.2',
+  VERSION: '1.1.3',
 };
