@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f2a44">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Levantamientos</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="barra">
+    <button id="btnVolver" class="icono" aria-label="Volver" hidden>
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg>
+    </button>
+    <div class="titulos">
+      <div id="titulo" class="titulo">Levantamientos</div>
+      <div id="subtitulo" class="subtitulo"></div>
+    </div>
+    <button id="btnSync" class="sync" aria-label="Sincronizar" hidden>
+      <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" /></svg>
+      <span id="badge" class="badge" hidden>0</span>
+    </button>
+    <button id="btnAjustes" class="icono" aria-label="Ajustes" hidden>
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
+    </button>
+  </header>
+  <div id="estadoRed" class="estado-red" hidden>Sin conexión — los cambios se guardan en este equipo</div>
+  <main id="app"></main>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>
