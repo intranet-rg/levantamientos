@@ -9,4 +9,3 @@ window.CONFIG = {
   NOMBRE_APP: 'Levantamientos',
   VERSION: '1.1.0',
 };
- 

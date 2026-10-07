@@ -87,17 +87,23 @@ async function api(accion, datos = {}, timeout = 60000) {
     const r = await fetch(S.apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ accion, usuario: S.usuario?.nombre, codigo: S.usuario?.codigo, ...datos }),
+      body: JSON.stringify({ accion, sesion: S.usuario?.sesion, ...datos }),
       signal: ctrl.signal,
       redirect: 'follow',
     });
     const j = await r.json();
-    if (!j.ok) throw new Error(j.error || 'Error del servidor');
+    if (!j.ok) {
+      const msg = j.error || 'Error del servidor';
+      if (msg.startsWith('SESION:')) { S.sesionVencida = true; avisoSesion(); throw new Error(msg.slice(7).trim()); }
+      throw new Error(msg);
+    }
     return j;
   } finally {
     clearTimeout(t);
   }
 }
+
+function avisoSesion() { $('#avisoSesion').hidden = !(S.usuario && S.sesionVencida); }
 
 const sinDirty = ({ _dirty, _pending, ...r }) => r;
 
@@ -116,6 +122,7 @@ async function actualizarBadge() {
 
 async function sincronizar({ silencioso = false, completa = false } = {}) {
   if (S.sincronizando || !S.usuario) return;
+  if (S.sesionVencida && silencioso) return;
   if (!navigator.onLine) { if (!silencioso) toast('Sin conexión. Se sincronizará al volver la señal.'); return; }
   S.sincronizando = true;
   $('#btnSync').classList.add('girando');
@@ -337,43 +344,73 @@ function tarjeta(href, titulo, sub, derecha = '', extra = '') {
     <div class="der">${derecha}<svg viewBox="0 0 24 24" class="flecha"><path d="M9 5l7 7-7 7"/></svg></div></a>`;
 }
 
+function esperarGoogle(ms = 10000) {
+  return new Promise((res) => {
+    const t0 = Date.now();
+    (function mirar() {
+      if (window.google && google.accounts && google.accounts.id) return res(true);
+      if (Date.now() - t0 > ms) return res(false);
+      setTimeout(mirar, 200);
+    })();
+  });
+}
+
 async function vistaLogin() {
-  cabecera(CONFIG.NOMBRE_APP);
-  ['#btnSync', '#btnAjustes'].forEach((s) => { $(s).hidden = true; });
+  const reingreso = !!S.usuario;
+  cabecera(CONFIG.NOMBRE_APP, reingreso ? (S.usuario.email || '') : '', reingreso ? '#/' : null);
+  if (!reingreso) ['#btnSync', '#btnAjustes'].forEach((x) => { $(x).hidden = true; });
   const urlConfig = CONFIG.API_URL && !CONFIG.API_URL.startsWith('PEGAR') ? CONFIG.API_URL : '';
   const urlGuardada = (await DB.meta('apiUrl')) || urlConfig;
-  $('#app').innerHTML = `<form id="fLogin" class="panel login">
-    <h2>Ingreso de técnico</h2>
-    <p class="nota">La primera vez necesitas señal. Después la app funciona sin conexión.</p>
-    <label class="campo"><span class="lbl">Nombre</span><div class="ctrl"><input name="nombre" required autocomplete="username"></div></label>
-    <label class="campo"><span class="lbl">Código de acceso</span><div class="ctrl"><input name="codigo" required type="password" inputmode="numeric" autocomplete="current-password"></div></label>
+  $('#app').innerHTML = `<div class="panel login">
+    <h2>${reingreso ? 'Volver a iniciar sesión' : 'Ingreso'}</h2>
+    <p class="nota">${reingreso
+      ? 'Tu sesión venció. Lo que tienes en este teléfono está a salvo; inicia sesión para seguir sincronizando.'
+      : 'Entra con tu cuenta de Google de la empresa. La primera vez necesitas señal; después la app funciona sin conexión.'}</p>
+    <div id="gBtn" class="g-btn"><p class="nota">Cargando…</p></div>
+    <p class="nota centro">Solo cuentas @${esc(CONFIG.DOMINIO)}</p>
     <details ${urlGuardada ? '' : 'open'}><summary>Servidor</summary>
-      <label class="campo"><span class="lbl">URL de Apps Script (/exec)</span><div class="ctrl"><input name="url" value="${esc(urlGuardada)}" required></div></label>
+      <label class="campo"><span class="lbl">URL de Apps Script (/exec)</span><div class="ctrl"><input id="inUrl" value="${esc(urlGuardada)}"></div></label>
     </details>
-    <button class="btn primario" type="submit">Entrar</button>
-  </form>`;
-  $('#fLogin').onsubmit = async (ev) => {
-    ev.preventDefault();
-    const f = new FormData(ev.target);
-    S.apiUrl = f.get('url').trim();
-    S.usuario = { nombre: f.get('nombre').trim(), codigo: f.get('codigo').trim() };
-    const btn = $('button[type=submit]', ev.target);
-    btn.disabled = true; btn.textContent = 'Conectando…';
-    try {
-      const r = await api('login');
-      S.usuario.nombre = r.usuario;
-      await DB.setMeta('apiUrl', S.apiUrl);
-      await DB.setMeta('usuario', S.usuario);
-      iniciarSesion();
-      await sincronizar({ completa: true });
-      location.hash = '#/';
-      render();
-    } catch (e) {
-      S.usuario = null;
-      btn.disabled = false; btn.textContent = 'Entrar';
-      toast(e.message === 'Failed to fetch' ? 'Sin conexión con el servidor. Revisa la URL y la señal.' : e.message, 4000);
-    }
-  };
+  </div>`;
+  const caja = $('#gBtn');
+  if (!navigator.onLine) { caja.innerHTML = '<p class="vacio">Necesitas señal para iniciar sesión.</p>'; return; }
+  if (!CONFIG.GOOGLE_CLIENT_ID || CONFIG.GOOGLE_CLIENT_ID.startsWith('PEGAR')) {
+    caja.innerHTML = '<p class="vacio">Falta configurar GOOGLE_CLIENT_ID en config.js.</p>'; return;
+  }
+  if (!(await esperarGoogle())) {
+    caja.innerHTML = '<p class="vacio">No se pudo cargar el inicio de sesión de Google. Revisa la señal y vuelve a abrir la app.</p>'; return;
+  }
+  google.accounts.id.initialize({
+    client_id: CONFIG.GOOGLE_CLIENT_ID,
+    hd: CONFIG.DOMINIO,
+    auto_select: false,
+    ux_mode: 'popup',
+    callback: async (resp) => {
+      S.apiUrl = $('#inUrl').value.trim();
+      if (!S.apiUrl) { toast('Falta la URL del servidor'); $('details', $('#app')).open = true; return; }
+      caja.innerHTML = '<p class="nota">Conectando…</p>';
+      try {
+        const r = await api('login', { idToken: resp.credential });
+        if (reingreso && S.usuario.email && S.usuario.email !== r.email && (await contarPendientes())) {
+          throw new Error(`Hay cambios sin subir de ${S.usuario.email}. Inicia sesión con esa cuenta.`);
+        }
+        S.usuario = { nombre: r.usuario, email: r.email, sesion: r.sesion };
+        S.sesionVencida = false;
+        avisoSesion();
+        await DB.setMeta('apiUrl', S.apiUrl);
+        await DB.setMeta('usuario', S.usuario);
+        iniciarSesion();
+        await sincronizar({ completa: !reingreso });
+        location.hash = '#/';
+        render();
+      } catch (e) {
+        toast(e.message === 'Failed to fetch' ? 'Sin conexión con el servidor. Revisa la URL y la señal.' : e.message, 5000);
+        vistaLogin();
+      }
+    },
+  });
+  caja.innerHTML = '';
+  google.accounts.id.renderButton(caja, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'signin_with', locale: 'es', width: 280 });
 }
 
 async function vistaInicio() {
@@ -696,6 +733,7 @@ async function vistaAjustes() {
   const pend = await contarPendientes();
   $('#app').innerHTML = `<div class="panel">
     <div><b>Técnico:</b> ${esc(S.usuario.nombre)}</div>
+    <div><b>Cuenta:</b> ${esc(S.usuario.email || '')}</div>
     <div><b>Última sincronización:</b> ${S.ultimaSync ? fecha(S.ultimaSync) : 'nunca'}</div>
     <div><b>Cambios pendientes:</b> ${pend}</div>
     <div><b>Tipos de equipo cargados:</b> ${tiposDisponibles().length}</div>
@@ -712,6 +750,7 @@ async function vistaAjustes() {
     if (n && !confirm(`Hay ${n} cambio(s) sin subir que se PERDERÁN. ¿Cerrar sesión igual?`)) return;
     if (!n && !confirm('¿Cerrar sesión? Se borrarán los datos guardados en este teléfono (en el servidor quedan).')) return;
     const url = S.apiUrl;
+    if (navigator.onLine) await api('logout', {}, 8000).catch(() => {});
     await DB.borrarTodo();
     await DB.setMeta('apiUrl', url);
     location.hash = '#/';
@@ -723,8 +762,8 @@ async function vistaAjustes() {
 
 async function render() {
   window.scrollTo(0, 0);
-  if (!S.usuario) return vistaLogin();
   const [, r, a, b] = (location.hash || '#/').split('/');
+  if (!S.usuario || r === 'login') return vistaLogin();
   try {
     switch (r) {
       case 'sitio': return await vistaSitio(a);
@@ -755,6 +794,7 @@ function iniciarSesion() {
 async function arrancar() {
   S.apiUrl = (await DB.meta('apiUrl')) || (CONFIG.API_URL.startsWith('PEGAR') ? '' : CONFIG.API_URL);
   S.usuario = await DB.meta('usuario');
+  if (S.usuario && !S.usuario.sesion) S.usuario = null; // datos de una versión anterior
   S.plantillas = (await DB.meta('plantillas')) || [];
   S.ultimaSync = (await DB.meta('ultimaSync')) || 0;
   $('#btnSync').onclick = () => sincronizar();

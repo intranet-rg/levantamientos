@@ -29,10 +29,12 @@
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
     </button>
   </header>
+  <a id="avisoSesion" class="aviso-sesion" href="#/login" hidden>Tu sesión venció — toca aquí para iniciar sesión (tus datos están a salvo)</a>
   <div id="estadoRed" class="estado-red" hidden>Sin conexión — los cambios se guardan en este equipo</div>
   <main id="app"></main>
   <div id="toast" class="toast" hidden></div>
 
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="config.js"></script>
   <script src="db.js"></script>
   <script src="app.js"></script>
