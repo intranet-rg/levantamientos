@@ -221,6 +221,21 @@ async function agregarFotos(equipoId, archivos) {
   await pintarFotos(equipoId);
 }
 
+// Descarga desde el servidor una foto que no está en este equipo y la deja guardada
+const descargando = {};
+async function traerFoto(f) {
+  const ya = await DB.get('blobs', f.id);
+  if (ya) return ya.data;
+  if (!f.driveId || !navigator.onLine || !S.usuario) return null;
+  if (!descargando[f.id]) {
+    descargando[f.id] = api('verFoto', { id: f.id }, 90000)
+      .then(async (r) => { await DB.put('blobs', { id: f.id, data: r.data, remota: true }); return r.data; })
+      .catch(() => null)
+      .finally(() => { delete descargando[f.id]; });
+  }
+  return descargando[f.id];
+}
+
 async function pintarFotos(equipoId) {
   const cont = $('#gridFotos');
   if (!cont) return;
@@ -231,12 +246,20 @@ async function pintarFotos(equipoId) {
   for (const f of fotos) {
     const b = await DB.get('blobs', f.id);
     html.push(`<a class="foto" href="#/foto/${f.id}">
-      ${b ? `<img src="${b.data}" alt="">` : `<div class="sin-local">En Drive</div>`}
+      ${b ? `<img src="${b.data}" alt="">` : `<div class="sin-local" data-remota="${f.id}">${f.driveId ? (navigator.onLine ? 'Cargando…' : 'Sin señal') : 'Subiendo…'}</div>`}
       <span class="etq">${esc(f.etiqueta)}</span>
       ${f._pending ? '<span class="pend" title="Pendiente de subir"></span>' : ''}
     </a>`);
   }
   cont.innerHTML = html.join('');
+  // Fotos que están en Drive pero no en este equipo: se descargan de a una
+  for (const f of fotos) {
+    const caja = cont.querySelector(`[data-remota="${f.id}"]`);
+    if (!caja || !f.driveId) continue;
+    const data = await traerFoto(f);
+    if (data && caja.isConnected) caja.outerHTML = `<img src="${data}" alt="">`;
+    else if (caja.isConnected) caja.textContent = 'Sin señal';
+  }
 }
 
 /* ===================== Formularios ===================== */
@@ -660,16 +683,24 @@ async function vistaFoto(id) {
   cabecera(`Foto · ${f.etiqueta}`, eq ? eq.tag : '', `#/equipo/${f.equipoId}`);
   const b = await DB.get('blobs', id);
   $('#app').innerHTML = `
-    <div class="visor">${b ? `<img src="${b.data}" alt="">` : `<div class="sin-local grande">Esta foto la tomó otro técnico.<br>${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">Ver en Drive</a>` : 'Aún no está en Drive.'}</div>`}</div>
+    <div class="visor" id="visor">${b ? `<img src="${b.data}" alt="">` : `<div class="sin-local grande">${f.driveId ? (navigator.onLine ? 'Cargando foto…' : 'Esta foto está en Drive. Conéctate a internet para verla.') : 'Esta foto se tomó en otro equipo y aún no se sube a Drive.'}</div>`}</div>
     <div class="panel">
       <label class="campo"><span class="lbl">Etiqueta</span><div class="ctrl"><select id="fEtq">${ETIQUETAS_FOTO.map((x) => `<option ${x === f.etiqueta ? 'selected' : ''}>${x}</option>`).join('')}</select></div></label>
       <label class="campo"><span class="lbl">Nota</span><div class="ctrl"><input id="fNota" value="${esc(f.nota)}" placeholder="Ej: medida de eje con pie de metro"></div></label>
-      <div class="nota">${f._pending ? 'Pendiente de subir a Drive' : (f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">Abrir en Drive</a>` : '')} · ${esc(f.creadoPor || '')} · ${fecha(f.creadoEn)}</div>
+      <div class="nota">${f._pending ? 'Pendiente de subir a Drive' : (f.driveId ? 'Guardada en Drive' : '')} · ${esc(f.creadoPor || '')} · ${fecha(f.creadoEn)}</div>
       <div class="acciones">
         <a class="btn primario" href="#/equipo/${f.equipoId}">Listo</a>
         <button class="btn peligro" id="btnBorrarFoto">Eliminar foto</button>
       </div>
     </div>`;
+  if (!b && f.driveId) {
+    traerFoto(f).then((data) => {
+      const v = $('#visor');
+      if (!v) return;
+      if (data) v.innerHTML = `<img src="${data}" alt="">`;
+      else v.innerHTML = '<div class="sin-local grande">No se pudo cargar la foto. Revisa la señal.</div>';
+    });
+  }
   const guardarF = async () => {
     const a = await DB.get('fotos', id);
     a.etiqueta = $('#fEtq').value; a.nota = $('#fNota').value.trim();

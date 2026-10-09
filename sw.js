@@ -1,6 +1,6 @@
 // Guarda la app en el teléfono para que abra sin señal.
 // Al cambiar archivos de la app, sube el número de versión para forzar la actualización.
-const CACHE = 'levantamientos-v1.1.3';
+const CACHE = 'levantamientos-v1.1.4';
 const ARCHIVOS = ['./', './index.html', './styles.css', './app.js', './db.js', './config.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
